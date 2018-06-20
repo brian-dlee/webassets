@@ -117,7 +117,6 @@ class Bundle(object):
         self.version = options.pop('version', [])
         self.remove_duplicates = options.pop('remove_duplicates', True)
         self.extra = options.pop('extra', {})
-        self.merge = options.pop('merge', True)
 
         self._config = BundleConfig(self)
         self._config.update(options.pop('config', {}))
@@ -321,6 +320,7 @@ class Bundle(object):
             if not version:
                 from .version import VersionIndeterminableError
                 if ctx.versions:
+                    print ctx
                     try:
                         version = ctx.versions.determine_version(self, ctx)
                         assert version
@@ -712,8 +712,10 @@ class Bundle(object):
         else:
             yield self, [], ctx
 
-    def _make_output_url(self, ctx):
+    def _make_output_url(self, ctx, url=None):
         """Return the output url, modified for expire header handling.
+
+        If a url is provided, then calculate the version for the given url.
         """
 
         # Only query the version if we need to for performance
@@ -723,10 +725,11 @@ class Bundle(object):
             # value, or we might serve old versions.
             version = self.get_version(ctx, refresh=ctx.auto_build)
 
-        url = self.output
+        if url is None:
+            url = ctx.resolver.resolve_output_to_url(ctx, self.output)
+
         if has_placeholder(url):
             url = url % {'version': version}
-        url = ctx.resolver.resolve_output_to_url(ctx, url)
 
         if ctx.url_expire or (
                 ctx.url_expire is None and not has_placeholder(self.output)):
@@ -772,12 +775,12 @@ class Bundle(object):
             urls = []
             for org, cnt in self.resolve_contents(ctx):
                 if isinstance(cnt, Bundle):
-                    urls.extend(org._urls(
+                    url = org._urls(
                         wrap(ctx, cnt),
                         merge_filters(extra_filters, self.filters),
-                        *args, **kwargs))
+                        *args, **kwargs)
                 elif is_url(cnt):
-                    urls.append(cnt)
+                    url = cnt
                 else:
                     try:
                         url = ctx.resolver.resolve_source_to_url(ctx, cnt, org)
@@ -788,7 +791,7 @@ class Bundle(object):
                         external = pull_external(ctx, cnt)
                         url = ctx.resolver.resolve_source_to_url(ctx, external, org)
 
-                    urls.append(url)
+                urls.append(self._make_output_url(ctx, url))
             return urls
 
     def urls(self, *args, **kwargs):
